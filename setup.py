@@ -1,8 +1,8 @@
-from setuptools import find_namespace_packages, setup
+from setuptools import setup, find_packages
 
 setup(
    name='edbo',
-   packages=find_namespace_packages(include=['edbo*', 'app*']), 
+   packages=['edbo'], 
    version='0.2.0',
    author='Jose A. Garrido Torres & Abigail Gutmann Doyle',
    author_email='josegarridotorres@me.com',
@@ -30,8 +30,6 @@ setup(
         'scipy>=1.10.0',
         'seaborn',
         'matplotlib',
-        'fastapi',
-        'uvicorn[standard]',
         'sympy==1.9',
         'torch==1.10.0',
         'tqdm',

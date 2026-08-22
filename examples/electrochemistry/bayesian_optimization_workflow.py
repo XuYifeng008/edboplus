@@ -32,15 +32,16 @@ if str(ROOT) not in sys.path:
 
 DEFAULT_SCOPE_FILE = "electrochemistry_scope.csv"
 DEFAULT_ROUND0_FILE = "electrochemistry_round0.csv"
-DEFAULT_OBJECTIVES = ["yield_percent", "selectivity_percent", "charge_F_per_mol"]
-DEFAULT_OBJECTIVE_MODE = ["max", "max", "min"]
+DEFAULT_OBJECTIVES = ["yield_percent"]
+DEFAULT_OBJECTIVE_MODE = ["max"]
 DEFAULT_BATCH_SIZE = 8
 DISPLAY_COLUMNS = [
-    "catalyst",
-    "catalyst_loading_mol_pct",
-    "electrolyte",
-    "electrolyte_equiv",
     "benzyl_alcohol_equiv",
+    "catalyst",
+    "catalyst_equiv",
+    "electrode",
+    "temperature_C",
+    "current_mA",
     "solvent_ratio",
 ]
 
@@ -60,82 +61,47 @@ def edbo_plus() -> object:
 def reaction_components() -> dict[str, list[object]]:
     """Return the default electrochemistry search space."""
     return {
-        "fluorenone_mmol": [1.0],
-        "catalyst": ["4-hydroxy-TEMPO", "TEMPO", "4-acetamido-TEMPO"],
-        "catalyst_loading_mol_pct": [5, 10, 15],
-        "electrolyte": [
-            "n-Bu4NClO4",
-            "n-Bu4NOAc",
-            "n-Bu4NBF4",
-            "Et4NClO4",
-            "Et4NOAc",
-            "Et4NBF4",
-        ],
-        "electrolyte_equiv": [0.05, 0.10, 0.20],
-        "PPh3_equiv": [1.0],
-        "benzyl_alcohol_equiv": [1.0, 1.5, 2.0],
-        "solvent_ratio": [
-            "MeCN:EtOAc=2:8",
-            "MeCN:EtOAc=3:7",
-            "MeCN:EtOAc=4:6",
-            "MeCN:EtOAc=5:5",
-            "MeCN:EtOAc=6:4",
-            "MeCN:EtOAc=7:3",
-        ],
-        "solvent_total_mL": [10.0],
+        "benzyl_alcohol_equiv": [1.5, 2.0, 2.5],
+        "catalyst": ["TEMPO", "TEMPOL"],
+        "catalyst_equiv": [0.15, 0.2, 0.25],
+        "electrode": ["Al", "Zn", "Sn", "Ag"],
+        "temperature_C": [25, 40, 50, 60],
+        "current_mA": [25, 40, 55, 70, 85],
+        "solvent_ratio": [0.2, 0.3, 0.4, 0.5],
     }
 
 
 def virtual_electrochemistry_result(row: pd.Series, rng: np.random.Generator) -> pd.Series:
     """Generate reproducible demo results; replace these with real measurements."""
     catalyst_bonus = {
-        "4-hydroxy-TEMPO": 6,
         "TEMPO": 0,
-        "4-acetamido-TEMPO": 10,
+        "TEMPOL": 6,
     }[row["catalyst"]]
-    electrolyte_bonus = {
-        "n-Bu4NClO4": 2,
-        "n-Bu4NOAc": -2,
-        "n-Bu4NBF4": 8,
-        "Et4NClO4": 0,
-        "Et4NOAc": -4,
-        "Et4NBF4": 4,
-    }[row["electrolyte"]]
-    solvent_score = {
-        "MeCN:EtOAc=2:8": -8,
-        "MeCN:EtOAc=3:7": -3,
-        "MeCN:EtOAc=4:6": 3,
-        "MeCN:EtOAc=5:5": 8,
-        "MeCN:EtOAc=6:4": 6,
-        "MeCN:EtOAc=7:3": 0,
-    }[row["solvent_ratio"]]
+    electrode_bonus = {
+        "Al": 2,
+        "Zn": 0,
+        "Sn": 5,
+        "Ag": 8,
+    }[row["electrode"]]
 
-    loading_penalty = -1.4 * abs(row["catalyst_loading_mol_pct"] - 10)
-    electrolyte_penalty = -45 * abs(row["electrolyte_equiv"] - 0.10)
-    alcohol_penalty = -8 * abs(row["benzyl_alcohol_equiv"] - 1.5)
+    alcohol_penalty = -8 * abs(row["benzyl_alcohol_equiv"] - 2.0)
+    catalyst_penalty = -40 * abs(row["catalyst_equiv"] - 0.2)
+    temperature_penalty = -0.3 * abs(row["temperature_C"] - 50)
+    current_penalty = -0.15 * abs(row["current_mA"] - 55)
+    solvent_penalty = -30 * abs(row["solvent_ratio"] - 0.4)
 
-    yield_percent = 48 + catalyst_bonus + electrolyte_bonus + solvent_score
-    yield_percent += loading_penalty + electrolyte_penalty + alcohol_penalty
+    yield_percent = 52 + catalyst_bonus + electrode_bonus
+    yield_percent += (
+        alcohol_penalty
+        + catalyst_penalty
+        + temperature_penalty
+        + current_penalty
+        + solvent_penalty
+    )
     yield_percent += rng.normal(0, 2.0)
     yield_percent = float(np.clip(yield_percent, 0, 100))
 
-    selectivity_percent = 62 + 0.45 * catalyst_bonus + 0.35 * electrolyte_bonus
-    selectivity_percent += 0.6 * solvent_score - 3 * max(row["benzyl_alcohol_equiv"] - 1.5, 0)
-    selectivity_percent += rng.normal(0, 1.5)
-    selectivity_percent = float(np.clip(selectivity_percent, 0, 100))
-
-    charge_F_per_mol = 2.6 - 0.015 * yield_percent + 0.25 * (row["electrolyte_equiv"] == 0.05)
-    charge_F_per_mol += 0.18 * (row["solvent_ratio"] in ["MeCN:EtOAc=2:8", "MeCN:EtOAc=3:7"])
-    charge_F_per_mol += rng.normal(0, 0.05)
-    charge_F_per_mol = float(np.clip(charge_F_per_mol, 0.8, 3.5))
-
-    return pd.Series(
-        {
-            "yield_percent": round(yield_percent, 1),
-            "selectivity_percent": round(selectivity_percent, 1),
-            "charge_F_per_mol": round(charge_F_per_mol, 2),
-        }
-    )
+    return pd.Series({"yield_percent": round(yield_percent, 1)})
 
 
 def csv_path(workdir: Path, filename: str) -> Path:
@@ -284,7 +250,7 @@ def run_demo_workflow(args: argparse.Namespace) -> None:
     show_predictions(args.workdir, f"pred_{args.round0_file}", args.objectives, args.rows)
 
 
-def choose_action() -> str:
+def choose_action() -> str | None:
     menu = {
         "1": ("scope", "Generate the electrochemistry condition space CSV"),
         "2": ("init", "Recommend the first batch of experiments"),
@@ -292,15 +258,64 @@ def choose_action() -> str:
         "4": ("next", "Recommend the next batch from observed results"),
         "5": ("predictions", "Show the prediction CSV"),
         "6": ("all", "Run the complete demo workflow"),
+        "0": (None, "Quit"),
     }
-    print("Choose a workflow step:")
+    print("\nChoose a workflow step:")
     for key, (_, description) in menu.items():
         print(f"  {key}. {description}")
 
-    choice = input("Enter 1-6: ").strip()
+    choice = input("Enter 0-6: ").strip()
     if choice not in menu:
-        raise ValueError("Invalid choice.")
+        print("Invalid choice. Enter a number from 0 to 6.")
+        return choose_action()
     return menu[choice][0]
+
+
+def run_action(action: str, args: argparse.Namespace) -> None:
+    if action == "scope":
+        create_scope(args.workdir, args.scope_file, args.overwrite)
+    elif action == "init":
+        if not csv_path(args.workdir, args.scope_file).exists():
+            create_scope(args.workdir, args.scope_file, overwrite=False)
+        run_recommendation(
+            args.workdir,
+            args.scope_file,
+            args.objectives,
+            args.objective_mode,
+            args.batch_size,
+            args.seed,
+            args.init_sampling_method,
+        )
+    elif action == "simulate":
+        simulate_priority_results(
+            args.workdir,
+            args.input_file or args.scope_file,
+            args.output_file or args.round0_file,
+            args.objectives,
+            args.simulation_seed,
+            args.overwrite,
+        )
+    elif action == "next":
+        run_recommendation(
+            args.workdir,
+            args.input_file or args.round0_file,
+            args.objectives,
+            args.objective_mode,
+            args.batch_size,
+            args.seed + 1,
+            args.init_sampling_method,
+        )
+    elif action == "predictions":
+        show_predictions(
+            args.workdir,
+            args.input_file or f"pred_{args.round0_file}",
+            args.objectives,
+            args.rows,
+        )
+    elif action == "all":
+        run_demo_workflow(args)
+    else:
+        raise ValueError(f"Unsupported action: {action}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -351,54 +366,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if len(args.objectives) != len(args.objective_mode):
         parser.error("--objectives and --objective-mode must have the same length.")
 
-    action = args.action or choose_action()
+    if args.action:
+        run_action(args.action, args)
+        return 0
 
-    if action == "scope":
-        create_scope(args.workdir, args.scope_file, args.overwrite)
-    elif action == "init":
-        if not csv_path(args.workdir, args.scope_file).exists():
-            create_scope(args.workdir, args.scope_file, overwrite=False)
-        run_recommendation(
-            args.workdir,
-            args.scope_file,
-            args.objectives,
-            args.objective_mode,
-            args.batch_size,
-            args.seed,
-            args.init_sampling_method,
-        )
-    elif action == "simulate":
-        simulate_priority_results(
-            args.workdir,
-            args.input_file or args.scope_file,
-            args.output_file or args.round0_file,
-            args.objectives,
-            args.simulation_seed,
-            args.overwrite,
-        )
-    elif action == "next":
-        run_recommendation(
-            args.workdir,
-            args.input_file or args.round0_file,
-            args.objectives,
-            args.objective_mode,
-            args.batch_size,
-            args.seed + 1,
-            args.init_sampling_method,
-        )
-    elif action == "predictions":
-        show_predictions(
-            args.workdir,
-            args.input_file or f"pred_{args.round0_file}",
-            args.objectives,
-            args.rows,
-        )
-    elif action == "all":
-        run_demo_workflow(args)
-    else:
-        parser.error(f"Unsupported action: {action}")
-
-    return 0
+    while True:
+        action = choose_action()
+        if action is None:
+            print("Bye.")
+            return 0
+        try:
+            run_action(action, args)
+        except Exception as error:
+            print(f"Step failed: {error}")
+        print()
 
 
 if __name__ == "__main__":
